@@ -3,7 +3,7 @@
 import re
 from typing import Any, Dict, List, Optional
 
-from agentguard.guardrails.base import Guardrail, GuardrailResult
+from tealtiger.guardrails.base import Guardrail, GuardrailResult
 
 
 class PIIDetectionGuardrail(Guardrail):

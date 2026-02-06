@@ -1,4 +1,4 @@
-"""Type definitions for AgentGuard SDK."""
+"""Type definitions for TealTiger SDK."""
 
 from datetime import datetime
 from typing import Any, Dict, List, Optional

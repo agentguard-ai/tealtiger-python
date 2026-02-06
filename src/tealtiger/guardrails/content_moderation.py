@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
-from agentguard.guardrails.base import Guardrail, GuardrailResult
+from tealtiger.guardrails.base import Guardrail, GuardrailResult
 
 
 class ContentModerationGuardrail(Guardrail):

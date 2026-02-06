@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-from agentguard.guardrails.base import Guardrail, GuardrailResult
+from tealtiger.guardrails.base import Guardrail, GuardrailResult
 
 logger = logging.getLogger(__name__)
 

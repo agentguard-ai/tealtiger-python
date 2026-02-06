@@ -2,7 +2,7 @@
 Cost tracking types and data models.
 
 This module defines Pydantic models for cost tracking, budget management,
-and cost analytics in the AgentGuard SDK.
+and cost analytics in the TealTiger SDK.
 """
 
 from pydantic import BaseModel, Field

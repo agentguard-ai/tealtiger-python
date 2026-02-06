@@ -1,4 +1,4 @@
-"""Cost tracking and budget management for AgentGuard SDK."""
+"""Cost tracking and budget management for TealTiger SDK."""
 
 from .types import (
     ModelProvider,

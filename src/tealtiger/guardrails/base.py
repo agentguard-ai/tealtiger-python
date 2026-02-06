@@ -1,4 +1,4 @@
-"""Base guardrail interface for AgentGuard."""
+"""Base guardrail interface for TealTiger."""
 
 from abc import ABC, abstractmethod
 from datetime import datetime

@@ -2,7 +2,7 @@
 
 from typing import Any, Dict
 
-from agentguard.types import Policy, PolicyTestResult
+from tealtiger.types import Policy, PolicyTestResult
 
 
 class PolicyBuilder:

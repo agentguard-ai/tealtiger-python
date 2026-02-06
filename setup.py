@@ -1,4 +1,4 @@
-"""Setup script for AgentGuard Python SDK."""
+"""Setup script for TealTiger Python SDK."""
 
 from setuptools import setup
 

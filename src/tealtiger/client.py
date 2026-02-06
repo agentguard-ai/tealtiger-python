@@ -1,4 +1,4 @@
-"""AgentGuard client for policy evaluation and tool execution."""
+"""TealTiger client for policy evaluation and tool execution."""
 
 import logging
 import time
@@ -6,13 +6,13 @@ from typing import Any, Awaitable, Callable, Dict, Optional, Union
 
 import httpx
 
-from agentguard.types import ExecutionContext, ExecutionResult, SecurityDecision
+from tealtiger.types import ExecutionContext, ExecutionResult, SecurityDecision
 
 logger = logging.getLogger(__name__)
 
 
-class AgentGuardError(Exception):
-    """Base exception for AgentGuard errors."""
+class TealTigerError(Exception):
+    """Base exception for TealTiger errors."""
 
     def __init__(self, message: str, code: str = "UNKNOWN_ERROR", details: Optional[Dict[str, Any]] = None):
         super().__init__(message)
@@ -20,8 +20,8 @@ class AgentGuardError(Exception):
         self.details = details or {}
 
 
-class AgentGuard:
-    """Main client for interacting with the AgentGuard Security Sidecar Agent."""
+class TealTiger:
+    """Main client for interacting with the TealTiger Security Sidecar Agent."""
 
     def __init__(
         self,
@@ -36,7 +36,7 @@ class AgentGuard:
         on_security_decision: Optional[Callable[[SecurityDecision], None]] = None,
         on_error: Optional[Callable[[Exception], None]] = None,
     ) -> None:
-        """Initialize the AgentGuard client.
+        """Initialize the TealTiger client.
 
         Args:
             api_key: API key for authentication
@@ -63,7 +63,7 @@ class AgentGuard:
         # Configure logging
         if debug:
             logging.basicConfig(level=logging.DEBUG)
-            logger.debug(f"[AgentGuard] Initialized with SSA URL: {self.ssa_url}")
+            logger.debug(f"[TealTiger] Initialized with SSA URL: {self.ssa_url}")
 
         self._headers = {
             "Authorization": f"Bearer {api_key}",
@@ -122,8 +122,8 @@ class AgentGuard:
             context_dict = context.dict() if isinstance(context, ExecutionContext) else context
 
             if self.debug:
-                logger.debug(f"[AgentGuard] Evaluating tool: {tool_name}")
-                logger.debug(f"[AgentGuard] Parameters: {self._sanitize_params(parameters)}")
+                logger.debug(f"[TealTiger] Evaluating tool: {tool_name}")
+                logger.debug(f"[TealTiger] Parameters: {self._sanitize_params(parameters)}")
 
             # Evaluate security
             decision = await self._evaluate_security_async(tool_name, parameters, context_dict)
@@ -151,7 +151,7 @@ class AgentGuard:
                 self.on_error(error)
 
             if self.debug:
-                logger.error(f"[AgentGuard] Tool execution failed: {error}")
+                logger.error(f"[TealTiger] Tool execution failed: {error}")
 
             return ExecutionResult(
                 success=False,
@@ -193,7 +193,7 @@ class AgentGuard:
             context_dict = context.dict() if isinstance(context, ExecutionContext) else context
 
             if self.debug:
-                logger.debug(f"[AgentGuard] Evaluating tool: {tool_name}")
+                logger.debug(f"[TealTiger] Evaluating tool: {tool_name}")
 
             # Evaluate security
             decision = self._evaluate_security_sync(tool_name, parameters, context_dict)
@@ -221,7 +221,7 @@ class AgentGuard:
                 self.on_error(error)
 
             if self.debug:
-                logger.error(f"[AgentGuard] Tool execution failed: {error}")
+                logger.error(f"[TealTiger] Tool execution failed: {error}")
 
             return ExecutionResult(
                 success=False,
@@ -316,7 +316,7 @@ class AgentGuard:
     ) -> ExecutionResult:
         """Handle allow decision asynchronously."""
         if self.debug:
-            logger.debug(f"[AgentGuard] Tool allowed: {decision.reason}")
+            logger.debug(f"[TealTiger] Tool allowed: {decision.reason}")
 
         data = None
         if executor:
@@ -340,7 +340,7 @@ class AgentGuard:
     ) -> ExecutionResult:
         """Handle allow decision synchronously."""
         if self.debug:
-            logger.debug(f"[AgentGuard] Tool allowed: {decision.reason}")
+            logger.debug(f"[TealTiger] Tool allowed: {decision.reason}")
 
         data = None
         if executor:
@@ -362,7 +362,7 @@ class AgentGuard:
     ) -> ExecutionResult:
         """Handle transform decision asynchronously."""
         if self.debug:
-            logger.debug(f"[AgentGuard] Tool transformed: {decision.reason}")
+            logger.debug(f"[TealTiger] Tool transformed: {decision.reason}")
 
         if not decision.original_request:
             return ExecutionResult(
@@ -392,7 +392,7 @@ class AgentGuard:
     ) -> ExecutionResult:
         """Handle transform decision synchronously."""
         if self.debug:
-            logger.debug(f"[AgentGuard] Tool transformed: {decision.reason}")
+            logger.debug(f"[TealTiger] Tool transformed: {decision.reason}")
 
         if not decision.original_request:
             return ExecutionResult(
@@ -418,7 +418,7 @@ class AgentGuard:
     def _handle_deny(self, decision: SecurityDecision) -> ExecutionResult:
         """Handle deny decision."""
         if self.debug:
-            logger.debug(f"[AgentGuard] Tool denied: {decision.reason}")
+            logger.debug(f"[TealTiger] Tool denied: {decision.reason}")
 
         return ExecutionResult(
             success=False,
@@ -444,12 +444,12 @@ class AgentGuard:
     def _validate_tool_name(self, tool_name: str) -> None:
         """Validate tool name."""
         if not tool_name or not isinstance(tool_name, str):
-            raise AgentGuardError("Tool name must be a non-empty string", "VALIDATION_ERROR")
+            raise TealTigerError("Tool name must be a non-empty string", "VALIDATION_ERROR")
 
     def _validate_parameters(self, parameters: Dict[str, Any]) -> None:
         """Validate parameters."""
         if not isinstance(parameters, dict):
-            raise AgentGuardError("Parameters must be a dictionary", "VALIDATION_ERROR")
+            raise TealTigerError("Parameters must be a dictionary", "VALIDATION_ERROR")
 
     def _sanitize_params(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
         """Sanitize parameters for logging."""
@@ -465,7 +465,7 @@ class AgentGuard:
         """Close the sync HTTP client."""
         self._sync_client.close()
 
-    async def __aenter__(self) -> "AgentGuard":
+    async def __aenter__(self) -> "TealTiger":
         """Async context manager entry."""
         return self
 
@@ -473,7 +473,7 @@ class AgentGuard:
         """Async context manager exit."""
         await self.close()
 
-    def __enter__(self) -> "AgentGuard":
+    def __enter__(self) -> "TealTiger":
         """Sync context manager entry."""
         return self
 
