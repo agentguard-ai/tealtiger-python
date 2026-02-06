@@ -1,0 +1,303 @@
+"""
+TealAnthropic Client
+
+Drop-in replacement for Anthropic client with integrated security and cost tracking.
+"""
+
+from typing import Optional, List, Dict, Any, Literal, Union
+from pydantic import BaseModel, Field
+from anthropic import AsyncAnthropic
+
+from ..guardrails.engine import GuardrailEngine, GuardrailEngineResult
+from ..cost.tracker import CostTracker
+from ..cost.budget import BudgetManager, BudgetEnforcementResult
+from ..cost.storage import CostStorage
+from ..cost.types import TokenUsage, CostRecord
+from ..cost.utils import generate_id
+
+
+# Type alias for message content
+MessageContent = Union[str, List[Dict[str, Any]]]
+
+
+class TealAnthropicConfig(BaseModel):
+    """Configuration for TealAnthropic client."""
+    
+    api_key: str = Field(..., description="Anthropic API key")
+    agent_id: Optional[str] = Field(default='default-agent', description="Agent ID for tracking")
+    enable_guardrails: bool = Field(default=True, description="Enable guardrails")
+    enable_cost_tracking: bool = Field(default=True, description="Enable cost tracking")
+    guardrail_engine: Optional[GuardrailEngine] = Field(default=None, description="Guardrail engine instance")
+    cost_tracker: Optional[CostTracker] = Field(default=None, description="Cost tracker instance")
+    budget_manager: Optional[BudgetManager] = Field(default=None, description="Budget manager instance")
+    cost_storage: Optional[CostStorage] = Field(default=None, description="Cost storage instance")
+    base_url: Optional[str] = Field(default=None, description="Anthropic base URL")
+    
+    class Config:
+        arbitrary_types_allowed = True
+
+
+class MessageCreateRequest(BaseModel):
+    """Message create request parameters."""
+    
+    model: str
+    messages: List[Dict[str, Any]]
+    max_tokens: int
+    system: Optional[str] = None
+    temperature: Optional[float] = None
+    top_p: Optional[float] = None
+    top_k: Optional[int] = None
+    stop_sequences: Optional[List[str]] = None
+    stream: Optional[bool] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class SecurityMetadata(BaseModel):
+    """Security metadata for message response."""
+    
+    guardrail_result: Optional[GuardrailEngineResult] = None
+    cost_record: Optional[CostRecord] = None
+    budget_check: Optional[Dict[str, Any]] = None
+    
+    class Config:
+        arbitrary_types_allowed = True
+
+
+class MessageCreateResponse(BaseModel):
+    """Message create response."""
+    
+    id: str
+    type: Literal['message']
+    role: Literal['assistant']
+    content: List[Dict[str, Any]]
+    model: str
+    stop_reason: Optional[Literal['end_turn', 'max_tokens', 'stop_sequence']] = None
+    stop_sequence: Optional[str] = None
+    usage: Dict[str, int]
+    security: Optional[SecurityMetadata] = None
+
+
+class Messages:
+    """Messages API."""
+    
+    def __init__(self, parent: 'TealAnthropic'):
+        self.parent = parent
+    
+    async def create(self, **kwargs) -> MessageCreateResponse:
+        """
+        Create a message with security and cost tracking.
+        
+        Args:
+            **kwargs: Message creation parameters (model, messages, max_tokens, etc.)
+            
+        Returns:
+            MessageCreateResponse with security metadata
+            
+        Raises:
+            ValueError: If guardrails fail or budget is exceeded
+        """
+        request_id = generate_id()
+        agent_id = self.parent.config.agent_id
+        security = SecurityMetadata()
+        
+        try:
+            # 1. Run input guardrails
+            if self.parent.config.enable_guardrails and self.parent.guardrail_engine:
+                user_messages = '\n'.join(
+                    self.parent._extract_text_content(m.get('content', ''))
+                    for m in kwargs.get('messages', [])
+                    if m.get('role') == 'user'
+                )
+                guardrail_result = await self.parent.guardrail_engine.execute(user_messages)
+                security.guardrail_result = guardrail_result
+                
+                if not guardrail_result.passed:
+                    failed = ', '.join(guardrail_result.get_failed_guardrails())
+                    raise ValueError(
+                        f"Guardrail check failed: {failed} "
+                        f"(Risk: {guardrail_result.max_risk_score})"
+                    )
+            
+            # 2. Estimate cost and check budget
+            if self.parent.config.enable_cost_tracking and self.parent.cost_tracker:
+                # Estimate tokens (rough approximation: 4 chars = 1 token)
+                input_text = '\n'.join(
+                    self.parent._extract_text_content(m.get('content', ''))
+                    for m in kwargs.get('messages', [])
+                )
+                system_text = kwargs.get('system', '')
+                estimated_input_tokens = len(input_text + system_text) // 4
+                estimated_output_tokens = kwargs.get('max_tokens', 500)
+                
+                estimate = self.parent.cost_tracker.estimate_cost(
+                    kwargs['model'],
+                    TokenUsage(
+                        input_tokens=estimated_input_tokens,
+                        output_tokens=estimated_output_tokens,
+                        total_tokens=estimated_input_tokens + estimated_output_tokens
+                    ),
+                    'anthropic'
+                )
+                
+                if self.parent.budget_manager:
+                    budget_check = await self.parent.budget_manager.check_budget(
+                        agent_id, estimate.estimated_cost
+                    )
+                    security.budget_check = budget_check.dict()
+                    
+                    if not budget_check.allowed:
+                        raise ValueError(
+                            f"Budget exceeded: {budget_check.blocked_by.name} "
+                            f"(Limit: {budget_check.blocked_by.limit})"
+                        )
+            
+            # 3. Make actual API call
+            response = await self.parent.client.messages.create(**kwargs)
+            
+            # 4. Run output guardrails
+            if self.parent.config.enable_guardrails and self.parent.guardrail_engine:
+                assistant_message = '\n'.join(
+                    c.get('text', '') for c in response.content
+                    if c.get('type') == 'text'
+                )
+                output_result = await self.parent.guardrail_engine.execute(assistant_message)
+                
+                if not output_result.passed:
+                    failed = ', '.join(output_result.get_failed_guardrails())
+                    raise ValueError(
+                        f"Output guardrail check failed: {failed} "
+                        f"(Risk: {output_result.max_risk_score})"
+                    )
+            
+            # 5. Track actual cost
+            if self.parent.config.enable_cost_tracking and self.parent.cost_tracker:
+                cost_record = self.parent.cost_tracker.calculate_actual_cost(
+                    request_id,
+                    agent_id,
+                    kwargs['model'],
+                    TokenUsage(
+                        input_tokens=response.usage.input_tokens,
+                        output_tokens=response.usage.output_tokens,
+                        total_tokens=response.usage.input_tokens + response.usage.output_tokens
+                    ),
+                    'anthropic'
+                )
+                security.cost_record = cost_record
+                
+                if self.parent.cost_storage:
+                    await self.parent.cost_storage.store(cost_record)
+                
+                if self.parent.budget_manager:
+                    await self.parent.budget_manager.record_cost(cost_record)
+            
+            # 6. Return response with security metadata
+            return MessageCreateResponse(
+                id=response.id,
+                type=response.type,
+                role=response.role,
+                content=[
+                    {
+                        'type': c.type,
+                        'text': c.text if hasattr(c, 'text') else None,
+                    }
+                    for c in response.content
+                ],
+                model=response.model,
+                stop_reason=response.stop_reason,
+                stop_sequence=response.stop_sequence,
+                usage={
+                    'input_tokens': response.usage.input_tokens,
+                    'output_tokens': response.usage.output_tokens,
+                },
+                security=security
+            )
+        
+        except Exception as e:
+            if isinstance(e, ValueError):
+                raise
+            raise ValueError(f"TealAnthropic error: {str(e)}")
+
+
+class TealAnthropic:
+    """
+    TealAnthropic client - drop-in replacement for Anthropic with security.
+    
+    Provides integrated guardrails, cost tracking, and budget management
+    for Anthropic API calls.
+    
+    Example:
+        ```python
+        from tealtiger import TealAnthropic, TealAnthropicConfig
+        from tealtiger.guardrails import GuardrailEngine
+        from tealtiger.cost import CostTracker, BudgetManager, InMemoryCostStorage
+        
+        # Create components
+        engine = GuardrailEngine()
+        tracker = CostTracker()
+        storage = InMemoryCostStorage()
+        budget_manager = BudgetManager(storage)
+        
+        # Create guarded client
+        client = TealAnthropic(TealAnthropicConfig(
+            api_key="your-api-key",
+            agent_id="my-agent",
+            guardrail_engine=engine,
+            cost_tracker=tracker,
+            budget_manager=budget_manager,
+            cost_storage=storage
+        ))
+        
+        # Use like normal Anthropic client
+        response = await client.messages.create(
+            model="claude-3-opus-20240229",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": "Hello!"}]
+        )
+        ```
+    """
+    
+    def __init__(self, config: TealAnthropicConfig):
+        """
+        Initialize TealAnthropic client.
+        
+        Args:
+            config: Configuration for the guarded client
+        """
+        self.config = config
+        self.client = AsyncAnthropic(
+            api_key=config.api_key,
+            base_url=config.base_url
+        )
+        self.guardrail_engine = config.guardrail_engine
+        self.cost_tracker = config.cost_tracker
+        self.budget_manager = config.budget_manager
+        self.cost_storage = config.cost_storage
+    
+    @property
+    def messages(self) -> Messages:
+        """Access messages API."""
+        return Messages(self)
+    
+    def _extract_text_content(self, content: MessageContent) -> str:
+        """
+        Extract text content from message content (handles both string and array formats).
+        
+        Args:
+            content: Message content (string or array of content blocks)
+            
+        Returns:
+            Extracted text content
+        """
+        if isinstance(content, str):
+            return content
+        
+        if isinstance(content, list):
+            text_parts = []
+            for item in content:
+                if isinstance(item, dict):
+                    if item.get('type') == 'text' and 'text' in item:
+                        text_parts.append(item['text'])
+            return '\n'.join(text_parts)
+        
+        return ''
+
