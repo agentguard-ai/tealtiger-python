@@ -10,7 +10,9 @@ Security is our top priority. We take all security vulnerabilities seriously.
 
 Instead, please report them via email to:
 
-**agentguard@proton.me**
+**Please use GitHub Security Advisories to report vulnerabilities:**
+
+https://github.com/agentguard-ai/tealtiger-python/security/advisories/new
 
 ### What to Include
 
@@ -84,17 +86,15 @@ We provide security updates for the following versions:
 ```python
 # ✅ Good - Use environment variables
 import os
-from agentguard import AgentGuard
+from tealtiger import TealOpenAI
 
-guard = AgentGuard(
-    api_key=os.getenv("AGENTGUARD_API_KEY"),
-    ssa_url=os.getenv("AGENTGUARD_SSA_URL")
+client = TealOpenAI(
+    api_key=os.getenv("OPENAI_API_KEY")
 )
 
 # ❌ Bad - Hardcoded API key
-guard = AgentGuard(
-    api_key="ag_1234567890abcdef",
-    ssa_url="http://localhost:3000"
+client = TealOpenAI(
+    api_key="sk-1234567890abcdef"
 )
 ```
 
@@ -108,17 +108,15 @@ guard = AgentGuard(
 - Use certificate pinning for high-security environments
 
 ```python
-# ✅ Good - HTTPS URL
-guard = AgentGuard(
-    api_key=api_key,
-    ssa_url="https://ssa.agentguard.io"
+# ✅ Good - HTTPS (OpenAI/Anthropic APIs use HTTPS by default)
+from tealtiger import TealOpenAI
+
+client = TealOpenAI(
+    api_key=api_key
 )
 
-# ❌ Bad - HTTP URL
-guard = AgentGuard(
-    api_key=api_key,
-    ssa_url="http://ssa.agentguard.io"
-)
+# Note: TealTiger uses OpenAI/Anthropic APIs directly
+# All connections are HTTPS by default
 ```
 
 ### Input Validation
@@ -132,16 +130,16 @@ guard = AgentGuard(
 
 ```python
 # ✅ Good - Validated input
-from agentguard import AgentGuard
+from tealtiger import TealOpenAI
 
-def sanitize_query(query: str) -> str:
-    # Remove dangerous characters
-    return query.replace(";", "").replace("--", "")
+def sanitize_input(text: str) -> str:
+    # Remove potentially dangerous content
+    return text.strip()[:1000]  # Limit length
 
-result = guard.execute_tool_sync(
-    "database-query",
-    {"query": sanitize_query(user_input)},
-    {"session_id": session_id}
+response = await client.chat.completions.create(
+    model="gpt-4",
+    messages=[{"role": "user", "content": sanitize_input(user_input)}],
+    max_tokens=min(user_max_tokens, 4000)
 )
 ```
 
@@ -202,9 +200,8 @@ result = guard.execute_tool_sync(
 
 ## 📞 Contact
 
-- **Security Issues**: agentguard@proton.me
-- **General Questions**: agentguard@proton.me
-- **GitHub**: [agentguard-ai/agentguard-python](https://github.com/agentguard-ai/agentguard-python)
+- **Security Issues**: Use [GitHub Security Advisories](https://github.com/agentguard-ai/tealtiger-python/security/advisories/new)
+- **GitHub**: [agentguard-ai/tealtiger-python](https://github.com/agentguard-ai/tealtiger-python)
 
 ## 📄 Disclosure Policy
 
@@ -235,4 +232,4 @@ We credit security researchers in:
 
 ---
 
-**Thank you for helping keep AgentGuard Python SDK secure!** 🔒
+**Thank you for helping keep TealTiger Python SDK secure!** 🔒
